@@ -12,6 +12,7 @@
 #include "book/BookMetadata.h"
 #include "display/DisplayManager.h"
 #include "input/Input.h"
+#include "rain/DigitalRain.h"
 #include "reader/ReadingLoop.h"
 #include "rss/RssFeedManager.h"
 #include "storage/StorageManager.h"
@@ -100,6 +101,8 @@ private:
         QuickSync,
         FocusTimerGenres,
         FocusTimerSession,
+        DigitalRainSession,
+        DigitalRainSettings,
     };
 
     enum class FooterMetricMode : uint8_t {
@@ -233,6 +236,7 @@ private:
     void renderContextBrowsePreview(size_t currentIndex, uint16_t scrollProgressPermille);
     void applyMenuTouchGesture(const TouchEvent& event, uint32_t nowMs);
     void applyFocusTimerTouch(const TouchEvent& event, uint32_t nowMs);
+    void applyDigitalRainTouch(const TouchEvent& event, uint32_t nowMs);
     void moveMenuSelection(int direction);
     void selectMenuItem(uint32_t nowMs);
     bool isSettingsMenuScreen(MenuScreen screen) const;
@@ -247,6 +251,11 @@ private:
     void resetFocusTimer();
     void rebuildFocusTimerGenreMenuItems();
     void selectFocusTimerGenre(uint32_t nowMs);
+    void openDigitalRain();
+    void updateDigitalRain(uint32_t nowMs);
+    void resetDigitalRain();
+    void openDigitalRainSettings();
+    void selectDigitalRainSettingsItem(uint32_t nowMs);
     void openSettings();
     void selectSettingsItem(uint32_t nowMs);
     void selectRestructuredSettingsItem(uint32_t nowMs);
@@ -378,6 +387,9 @@ private:
     void renderQuickSync();
     void renderFocusTimerGenres();
     void renderFocusTimerSession();
+    void renderDigitalRainSession();
+    void renderDigitalRainSettings();
+    uint16_t digitalRainHueColor(DigitalRain::Hue hue) const;
     void renderActiveReader(uint32_t nowMs);
     bool updateChapterTransition(uint32_t nowMs);
     bool maybeStartChapterTransition(size_t previousWordIndex, size_t currentWordIndex, uint32_t nowMs);
@@ -430,6 +442,7 @@ private:
     const char* stateName(AppState state) const;
     const char* inputGestureName(Input::Gesture gesture) const;
     bool isFocusTimerMenuScreen(MenuScreen screen) const;
+    bool isDigitalRainMenuScreen(MenuScreen screen) const;
     bool scrollModeEnabled() const;
     void applyUiOrientation(Board::UiOrientation orientation);
     void applyReaderUiOrientation();
@@ -447,6 +460,7 @@ private:
     AppState standbyReturnState_ = AppState::Paused;
     DisplayManager display_;
     FocusTimer focusTimer_;
+    DigitalRain digitalRain_;
     ReadingLoop reader_;
     StorageManager storage_;
     IndexedBookStore activeBookStore_;
@@ -494,6 +508,7 @@ private:
     size_t quickSettingsSelectedIndex_ = 0;
     size_t quickSyncSelectedIndex_ = 0;
     size_t focusTimerGenreSelectedIndex_ = 0;
+    size_t digitalRainSettingsSelectedIndex_ = 0;
     uint8_t standbyTimerIndex_ = 0;
     uint8_t brightnessLevelIndex_ = 4;
     uint8_t readerFontSizeIndex_ = 0;

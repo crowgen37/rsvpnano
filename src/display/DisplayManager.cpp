@@ -3132,6 +3132,55 @@ void DisplayManager::renderLifeScreensaver(const std::vector<uint32_t> &cells, u
   flushScaledFrame(scale, virtualWidth, virtualHeight);
 }
 
+void DisplayManager::renderDigitalRain(const std::vector<char> &glyphs,
+                                       const std::vector<uint8_t> &brightness, uint16_t columns,
+                                       uint16_t rows, uint8_t cellWidth, uint8_t cellHeight,
+                                       uint16_t baseColor, uint32_t frameCounter) {
+  if (columns == 0 || rows == 0 || glyphs.size() != brightness.size()) {
+    return;
+  }
+
+  const String renderKey = "rain|" + String(frameCounter) + "|" + String(columns) + "|" +
+                           String(rows) + "|c:" + String(baseColor) + "|d:" +
+                           String(darkMode_ ? 1 : 0) + "|n:" + String(nightMode_ ? 1 : 0);
+  if (!initialized_ || renderKey == lastRenderKey_) {
+    return;
+  }
+  lastRenderKey_ = renderKey;
+
+  const int virtualWidth = logicalWidth();
+  const int virtualHeight = logicalHeight();
+  clearVirtualBuffer(virtualWidth, virtualHeight);
+
+  for (uint16_t row = 0; row < rows; ++row) {
+    const int y = row * cellHeight;
+    if (y >= virtualHeight) {
+      break;
+    }
+    for (uint16_t col = 0; col < columns; ++col) {
+      const size_t index = static_cast<size_t>(row) * columns + col;
+      const uint8_t cellBrightness = brightness[index];
+      if (cellBrightness == 0) {
+        continue;
+      }
+      const char glyph = glyphs[index];
+      if (glyph == '\0') {
+        continue;
+      }
+
+      const int x = col * cellWidth;
+      if (x >= virtualWidth) {
+        continue;
+      }
+
+      const uint16_t color = panelColor(blendOverBackground(baseColor, cellBrightness));
+      drawTinyGlyph(x, y, glyph, color, /*scale=*/1);
+    }
+  }
+
+  flushScaledFrame(1, virtualWidth, virtualHeight);
+}
+
 void DisplayManager::renderFocusTimerScreen(const String &mode, const String &genre,
                                             const String &timer, const String &instruction,
                                             const String &footer, int progressPercent,

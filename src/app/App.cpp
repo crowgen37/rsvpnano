@@ -175,8 +175,18 @@ namespace {
         QuickSettingsBrightness,
         QuickSettingsTheme,
         QuickSettingsFocusTimer,
+        QuickSettingsDigitalRain,
         QuickSettingsSync,
         QuickSettingsItemCount,
+    };
+
+    enum DigitalRainSettingsItem : size_t {
+        DigitalRainColorGreen,
+        DigitalRainColorBlue,
+        DigitalRainColorYellow,
+        DigitalRainColorRed,
+        DigitalRainExit,
+        DigitalRainSettingsItemCount,
     };
 
     enum QuickSyncItem : size_t {
@@ -760,6 +770,7 @@ void App::begin() {
 
     Board::Audio::begin();
     focusTimer_.begin();
+    digitalRain_.begin();
 
 #if RSVP_USB_TRANSFER_ENABLED && RSVP_USB_TRANSFER_AUTO_START
     state_ = AppState::Booting;
@@ -844,6 +855,7 @@ void App::update(uint32_t nowMs) {
     loadPendingBootBook(nowMs);
     maybeOpenUpdateConfirm(nowMs);
     updateFocusTimer(nowMs);
+    updateDigitalRain(nowMs);
     updateReader(nowMs);
     updateWpmFeedback(nowMs);
     maybeSaveReadingPosition(nowMs);
@@ -863,6 +875,9 @@ void App::update(uint32_t nowMs) {
 
     bool isIdle = (state_ == AppState::Paused || state_ == AppState::Menu);
     if (state_ == AppState::Menu && menuScreen_ == MenuScreen::FocusTimerSession) {
+        isIdle = false;
+    }
+    if (state_ == AppState::Menu && isDigitalRainMenuScreen(menuScreen_)) {
         isIdle = false;
     }
     if (otaCheckInProgress_) {
@@ -1118,6 +1133,8 @@ bool App::handleMenuInput(const Input::Event& event, uint32_t nowMs) {
     if (Input::isTouchEvent(event)) {
         if (menuScreen_ == MenuScreen::FocusTimerSession) {
             applyFocusTimerTouch(event, nowMs);
+        } else if (menuScreen_ == MenuScreen::DigitalRainSession) {
+            applyDigitalRainTouch(event, nowMs);
         } else {
             applyMenuTouchGesture(event, nowMs);
         }
@@ -1274,6 +1291,9 @@ void App::toggleMenuFromPowerButton(uint32_t nowMs) {
         } else {
             if (isFocusTimerMenuScreen(menuScreen_)) {
                 resetFocusTimer();
+            }
+            if (isDigitalRainMenuScreen(menuScreen_)) {
+                resetDigitalRain();
             }
             menuScreen_ = MenuScreen::Main;
             renderMainMenu();
@@ -2399,6 +2419,17 @@ void App::applyFocusTimerTouch(const TouchEvent& event, uint32_t nowMs) {
     (void) tapLike;
 }
 
+void App::applyDigitalRainTouch(const TouchEvent& event, uint32_t nowMs) {
+    if (event.gesture == Input::Gesture::Tapped) {
+        openDigitalRainSettings();
+        return;
+    }
+    if (event.gesture != Input::Gesture::TouchMove) {
+        return;
+    }
+    digitalRain_.onTouch(event.x, event.y, nowMs);
+}
+
 void App::openFocusTimer() {
     focusTimer_.open();
     rebuildFocusTimerGenreMenuItems();
@@ -2434,6 +2465,60 @@ void App::resetFocusTimer() {
     focusTimerCancelHoldTriggered_ = false;
     pausedTouch_.active = false;
     focusTimerGenreSelectedIndex_ = kFocusTimerGenreBackIndex;
+}
+
+void App::openDigitalRain() {
+    digitalRain_.open();
+    menuScreen_ = MenuScreen::DigitalRainSession;
+    state_ = AppState::Menu;
+    renderMenu();
+}
+
+void App::updateDigitalRain(uint32_t nowMs) {
+    if (state_ != AppState::Menu || menuScreen_ != MenuScreen::DigitalRainSession) {
+        return;
+    }
+
+    digitalRain_.update(nowMs);
+    renderDigitalRainSession();
+}
+
+void App::resetDigitalRain() {
+    digitalRain_.close();
+}
+
+void App::openDigitalRainSettings() {
+    digitalRainSettingsSelectedIndex_ = static_cast<size_t>(digitalRain_.hue());
+    menuScreen_ = MenuScreen::DigitalRainSettings;
+    renderDigitalRainSettings();
+}
+
+void App::selectDigitalRainSettingsItem(uint32_t nowMs) {
+    (void)nowMs;
+    switch (digitalRainSettingsSelectedIndex_) {
+    case DigitalRainColorGreen:
+        digitalRain_.setHue(DigitalRain::Hue::Green);
+        break;
+    case DigitalRainColorBlue:
+        digitalRain_.setHue(DigitalRain::Hue::Blue);
+        break;
+    case DigitalRainColorYellow:
+        digitalRain_.setHue(DigitalRain::Hue::Yellow);
+        break;
+    case DigitalRainColorRed:
+        digitalRain_.setHue(DigitalRain::Hue::Red);
+        break;
+    case DigitalRainExit:
+        resetDigitalRain();
+        menuScreen_ = MenuScreen::Main;
+        renderMainMenu();
+        return;
+    default:
+        break;
+    }
+
+    menuScreen_ = MenuScreen::DigitalRainSession;
+    renderDigitalRainSession();
 }
 
 void App::rebuildFocusTimerGenreMenuItems() {
@@ -2538,6 +2623,9 @@ void App::moveMenuSelection(int direction) {
     } else if (menuScreen_ == MenuScreen::FocusTimerGenres) {
         selectedIndex = &focusTimerGenreSelectedIndex_;
         itemCount = focusTimerGenreMenuItems_.size();
+    } else if (menuScreen_ == MenuScreen::DigitalRainSettings) {
+        selectedIndex = &digitalRainSettingsSelectedIndex_;
+        itemCount = DigitalRainSettingsItemCount;
     }
 
     if (itemCount == 0) {
@@ -2608,6 +2696,9 @@ void App::moveMenuSelection(int direction) {
             break;
         case QuickSettingsFocusTimer:
             selectedLabel = "Focus Timer";
+            break;
+        case QuickSettingsDigitalRain:
+            selectedLabel = "Digital Rain";
             break;
         case QuickSettingsSync:
         default:
@@ -2742,6 +2833,13 @@ void App::selectMenuItem(uint32_t nowMs) {
     if (menuScreen_ == MenuScreen::FocusTimerSession) {
         return;
     }
+    if (menuScreen_ == MenuScreen::DigitalRainSession) {
+        return;
+    }
+    if (menuScreen_ == MenuScreen::DigitalRainSettings) {
+        selectDigitalRainSettingsItem(nowMs);
+        return;
+    }
 
     if (Board::Config::ENABLE_RESTRUCTURED_MENU) {
         switch (menuSelectedIndex_) {
@@ -2842,6 +2940,9 @@ void App::selectQuickSettingsItem(uint32_t nowMs) {
         return;
     case QuickSettingsFocusTimer:
         openFocusTimer();
+        return;
+    case QuickSettingsDigitalRain:
+        openDigitalRain();
         return;
     case QuickSettingsSync:
         openQuickSync();
@@ -5753,7 +5854,7 @@ int App::findBookIndexByPath(const String& path) const {
 }
 
 void App::renderMenu() {
-    if (!isFocusTimerMenuScreen(menuScreen_)) {
+    if (!isFocusTimerMenuScreen(menuScreen_) && !isDigitalRainMenuScreen(menuScreen_)) {
         applyReaderUiOrientation();
     }
 
@@ -5785,6 +5886,10 @@ void App::renderMenu() {
         renderFocusTimerGenres();
     } else if (menuScreen_ == MenuScreen::FocusTimerSession) {
         renderFocusTimerSession();
+    } else if (menuScreen_ == MenuScreen::DigitalRainSession) {
+        renderDigitalRainSession();
+    } else if (menuScreen_ == MenuScreen::DigitalRainSettings) {
+        renderDigitalRainSettings();
     } else {
         renderMainMenu();
     }
@@ -5916,6 +6021,7 @@ void App::renderQuickSettings() {
     items.push_back(String("Brightness: ") + String(currentBrightnessPercent()) + "%");
     items.push_back(String("Theme: ") + themeModeLabel());
     items.push_back("Focus Timer");
+    items.push_back("Digital Rain");
     items.push_back("Sync");
     display_.renderMenu(items, quickSettingsSelectedIndex_);
 }
@@ -5976,6 +6082,52 @@ void App::renderFocusTimerSession() {
         display_.renderFocusTimerScreen("DONE", "", "", "Session complete");
         return;
     }
+}
+
+uint16_t App::digitalRainHueColor(DigitalRain::Hue hue) const {
+    switch (hue) {
+    case DigitalRain::Hue::Green:
+        return 0x07E0;
+    case DigitalRain::Hue::Blue:
+        return 0x001F;
+    case DigitalRain::Hue::Yellow:
+        return 0xFFE0;
+    case DigitalRain::Hue::Red:
+        return 0xF800;
+    }
+    return 0x07E0;
+}
+
+void App::renderDigitalRainSession() {
+    applyUiOrientation(Board::UiOrientation::Portrait);
+
+    const uint16_t columns = digitalRain_.gridColumns();
+    const uint16_t rows = digitalRain_.gridRows();
+    std::vector<char> glyphs(static_cast<size_t>(columns) * rows, '\0');
+    std::vector<uint8_t> brightness(static_cast<size_t>(columns) * rows, 0);
+    for (uint16_t row = 0; row < rows; ++row) {
+        for (uint16_t col = 0; col < columns; ++col) {
+            const size_t index = static_cast<size_t>(row) * columns + col;
+            glyphs[index] = digitalRain_.glyphAt(col, row);
+            brightness[index] = digitalRain_.brightnessAt(col, row);
+        }
+    }
+
+    display_.renderDigitalRain(glyphs, brightness, columns, rows, DigitalRain::kCellWidth,
+                               DigitalRain::kCellHeight, digitalRainHueColor(digitalRain_.hue()),
+                               digitalRain_.frameCounter());
+}
+
+void App::renderDigitalRainSettings() {
+    applyUiOrientation(Board::UiOrientation::Portrait);
+    std::vector<String> items;
+    items.reserve(DigitalRainSettingsItemCount);
+    items.push_back("Color: Green");
+    items.push_back("Color: Blue");
+    items.push_back("Color: Yellow");
+    items.push_back("Color: Red");
+    items.push_back("Exit to Menu");
+    display_.renderMenu(items, digitalRainSettingsSelectedIndex_);
 }
 
 bool App::updateChapterTransition(uint32_t nowMs) {
@@ -6481,6 +6633,10 @@ uint8_t App::readingProgressPercent() const {
 
 bool App::isFocusTimerMenuScreen(MenuScreen screen) const {
     return screen == MenuScreen::FocusTimerGenres || screen == MenuScreen::FocusTimerSession;
+}
+
+bool App::isDigitalRainMenuScreen(MenuScreen screen) const {
+    return screen == MenuScreen::DigitalRainSession || screen == MenuScreen::DigitalRainSettings;
 }
 
 void App::applyUiOrientation(Board::UiOrientation orientation) {

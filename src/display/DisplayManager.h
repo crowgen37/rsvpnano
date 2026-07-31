@@ -121,6 +121,12 @@ class DisplayManager {
   void renderFocusTimerScreen(const String &mode, const String &genre, const String &timer,
                               const String &instruction, const String &footer = "",
                               int progressPercent = -1, bool breakAccent = false);
+  // glyphs/brightness are row-major (index = row * columns + column); brightness 0 means
+  // "no glyph at this cell", and non-zero blends baseColor over the background. frameCounter
+  // must change every call so the dirty-frame cache never suppresses an animation frame.
+  void renderDigitalRain(const std::vector<char> &glyphs, const std::vector<uint8_t> &brightness,
+                         uint16_t columns, uint16_t rows, uint8_t cellWidth, uint8_t cellHeight,
+                         uint16_t baseColor, uint32_t frameCounter);
 
  private:
   bool initPanel();

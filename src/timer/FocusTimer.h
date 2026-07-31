@@ -5,6 +5,7 @@
 
 #include "board/BoardImu.h"
 #include "board/BoardTypes.h"
+#include "sensors/Accelerometer.h"
 
 class FocusTimer {
  public:
@@ -76,9 +77,6 @@ class FocusTimer {
     Unknown,
   };
 
-  bool initImu();
-  bool updateRegister(uint8_t reg, uint8_t mask, uint8_t value);
-  bool readAccelerometer(float &x, float &y, float &z);
   void updateOrientation(uint32_t nowMs);
   void resetOrientationStability();
   OrientationState classify(float x, float y, float z) const;
@@ -95,9 +93,7 @@ class FocusTimer {
   static OrientationState oppositeShortSide(OrientationState orientation);
   static Board::UiOrientation portraitOrientationForShortSide(OrientationState orientation);
 
-  bool imuAvailable_ = false;
-  uint8_t imuAddress_ = Board::Imu::address();
-  float accelScale_ = 4.0f / 32768.0f;
+  Accelerometer accel_;
   uint8_t touchDurationByGenre_[kGenreCount] = {};
   OrientationState rawOrientation_ = OrientationState::Unknown;
   OrientationState stableOrientation_ = OrientationState::Unknown;
