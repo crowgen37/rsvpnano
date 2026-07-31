@@ -18,18 +18,30 @@ constexpr uint8_t kMaxBrightness = 255;
 const char kGlyphAlphabet[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 constexpr size_t kGlyphAlphabetLength = sizeof(kGlyphAlphabet) - 1;
 
+// Gravity component (in g) along an axis needed to call that axis "down".
+// Matches FocusTimer's side-axis threshold/cross-axis limit: the dominant
+// axis must clear kFlipAxisThreshold while the other axis stays under
+// kCrossAxisLimit, so a diagonal hold doesn't flicker between all four
+// orientations.
+constexpr float kFlipAxisThreshold = 0.55f;
+constexpr float kCrossAxisLimit = 0.40f;
+constexpr uint32_t kOrientationStableMs = 400;
+
 }  // namespace
 
-bool DigitalRain::begin() { return true; }
+bool DigitalRain::begin() {
+  accel_.begin();
+  return true;
+}
 
 void DigitalRain::open() {
-  // Portrait dims (panel-native W x H) — the long axis becomes the fall
-  // direction, matching a real Matrix-style cascade instead of the wide,
-  // short default landscape strip this board reads in.
-  gridColumns_ = static_cast<uint16_t>(std::max(1, Board::Config::PANEL_NATIVE_WIDTH / kCellWidth));
-  gridRows_ = static_cast<uint16_t>(std::max(1, Board::Config::PANEL_NATIVE_HEIGHT / kCellHeight));
   frameCounter_ = 0;
   lastFrameMs_ = 0;
+  uiOrientation_ =
+      (rotateMode_ == RotateMode::Landscape) ? Board::UiOrientation::Landscape : Board::UiOrientation::Portrait;
+  orientationCandidate_ = uiOrientation_;
+  orientationCandidateSinceMs_ = 0;
+  resizeGrid();
   seedColumns();
 }
 
@@ -37,6 +49,33 @@ void DigitalRain::close() {
   columns_.clear();
   gridColumns_ = 0;
   gridRows_ = 0;
+}
+
+void DigitalRain::resizeGrid() {
+  // Portrait dims (panel-native W x H) by default — the long axis becomes
+  // the fall direction, matching a real Matrix-style cascade instead of the
+  // wide, short default landscape strip this board reads in. Whenever the
+  // current uiOrientation_ is a landscape variant (fixed Landscape mode, or
+  // Auto having tilted into one), swap to the board's landscape logical
+  // dims instead so the grid always matches what's actually on screen.
+  const bool landscapeShape = uiOrientation_ == Board::UiOrientation::Landscape ||
+                              uiOrientation_ == Board::UiOrientation::LandscapeFlipped;
+  const int baseWidth = landscapeShape ? Board::Config::DISPLAY_WIDTH : Board::Config::PANEL_NATIVE_WIDTH;
+  const int baseHeight = landscapeShape ? Board::Config::DISPLAY_HEIGHT : Board::Config::PANEL_NATIVE_HEIGHT;
+  gridColumns_ = static_cast<uint16_t>(std::max(1, baseWidth / cellWidth()));
+  gridRows_ = static_cast<uint16_t>(std::max(1, baseHeight / cellHeight()));
+}
+
+void DigitalRain::setFontSize(FontSize size) {
+  if (fontSize_ == size) {
+    return;
+  }
+  fontSize_ = size;
+  if (gridColumns_ == 0 && columns_.empty()) {
+    return;
+  }
+  resizeGrid();
+  seedColumns();
 }
 
 void DigitalRain::seedColumns() {
@@ -70,10 +109,65 @@ char DigitalRain::nextRandomGlyph() {
   return kGlyphAlphabet[index < kGlyphAlphabetLength ? index : kGlyphAlphabetLength - 1];
 }
 
+void DigitalRain::setRotateMode(RotateMode mode) {
+  if (rotateMode_ == mode) {
+    return;
+  }
+
+  rotateMode_ = mode;
+  uiOrientation_ = (mode == RotateMode::Landscape) ? Board::UiOrientation::Landscape : Board::UiOrientation::Portrait;
+  orientationCandidate_ = uiOrientation_;
+  orientationCandidateSinceMs_ = 0;
+
+  if (!(gridColumns_ == 0 && columns_.empty())) {
+    resizeGrid();
+    seedColumns();
+  }
+}
+
+void DigitalRain::updateTiltOrientation(uint32_t nowMs) {
+  if (rotateMode_ != RotateMode::Auto || !accel_.available()) {
+    return;
+  }
+
+  float x = 0.0f;
+  float y = 0.0f;
+  float z = 0.0f;
+  if (!accel_.read(x, y, z)) {
+    return;
+  }
+
+  // Full 4-way gravity follow: whichever of the two in-plane axes is
+  // dominant decides portrait vs. landscape, and its sign decides which of
+  // the two flipped/unflipped variants is currently "down".
+  Board::UiOrientation candidate;
+  if (fabsf(x) >= kFlipAxisThreshold && fabsf(y) <= kCrossAxisLimit) {
+    candidate = (x >= 0.0f) ? Board::UiOrientation::LandscapeFlipped : Board::UiOrientation::Landscape;
+  } else if (fabsf(y) >= kFlipAxisThreshold && fabsf(x) <= kCrossAxisLimit) {
+    candidate = (y <= 0.0f) ? Board::UiOrientation::Portrait : Board::UiOrientation::PortraitFlipped;
+  } else {
+    return;
+  }
+
+  if (candidate != orientationCandidate_) {
+    orientationCandidate_ = candidate;
+    orientationCandidateSinceMs_ = nowMs;
+    return;
+  }
+
+  if (uiOrientation_ != candidate && (nowMs - orientationCandidateSinceMs_) >= kOrientationStableMs) {
+    uiOrientation_ = candidate;
+    resizeGrid();
+    seedColumns();
+  }
+}
+
 void DigitalRain::update(uint32_t nowMs) {
   if (gridColumns_ == 0 || columns_.empty()) {
     return;
   }
+
+  updateTiltOrientation(nowMs);
 
   if (lastFrameMs_ != 0 && (nowMs - lastFrameMs_) < kFrameIntervalMs) {
     return;
@@ -114,7 +208,7 @@ void DigitalRain::onTouch(uint16_t x, uint16_t y, uint32_t nowMs) {
     return;
   }
 
-  const uint16_t column = static_cast<uint16_t>(std::min<int>(gridColumns_ - 1, x / kCellWidth));
+  const uint16_t column = static_cast<uint16_t>(std::min<int>(gridColumns_ - 1, x / cellWidth()));
   columns_[column].boostFrames = kTouchBoostFrames;
 }
 
@@ -149,4 +243,12 @@ uint8_t DigitalRain::brightnessAt(uint16_t column, uint16_t row) const {
     brightness = std::min<uint16_t>(kMaxBrightness, static_cast<uint16_t>(brightness * 1.3f));
   }
   return static_cast<uint8_t>(brightness);
+}
+
+bool DigitalRain::isLeadGlyph(uint16_t column, uint16_t row) const {
+  if (column >= gridColumns_ || row >= gridRows_) {
+    return false;
+  }
+
+  return static_cast<int>(floorf(columns_[column].headRow)) == static_cast<int>(row);
 }

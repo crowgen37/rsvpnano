@@ -3133,15 +3133,19 @@ void DisplayManager::renderLifeScreensaver(const std::vector<uint32_t> &cells, u
 }
 
 void DisplayManager::renderDigitalRain(const std::vector<char> &glyphs,
-                                       const std::vector<uint8_t> &brightness, uint16_t columns,
-                                       uint16_t rows, uint8_t cellWidth, uint8_t cellHeight,
-                                       uint16_t baseColor, uint32_t frameCounter) {
-  if (columns == 0 || rows == 0 || glyphs.size() != brightness.size()) {
+                                       const std::vector<uint8_t> &brightness,
+                                       const std::vector<bool> &lead, uint16_t columns,
+                                       uint16_t rows, uint16_t cellWidth, uint16_t cellHeight,
+                                       uint16_t baseColor, uint8_t glyphScale,
+                                       bool highlightsEnabled, uint32_t frameCounter) {
+  if (columns == 0 || rows == 0 || glyphs.size() != brightness.size() ||
+      glyphs.size() != lead.size()) {
     return;
   }
 
   const String renderKey = "rain|" + String(frameCounter) + "|" + String(columns) + "|" +
-                           String(rows) + "|c:" + String(baseColor) + "|d:" +
+                           String(rows) + "|c:" + String(baseColor) + "|s:" + String(glyphScale) +
+                           "|h:" + String(highlightsEnabled ? 1 : 0) + "|d:" +
                            String(darkMode_ ? 1 : 0) + "|n:" + String(nightMode_ ? 1 : 0);
   if (!initialized_ || renderKey == lastRenderKey_) {
     return;
@@ -3173,8 +3177,10 @@ void DisplayManager::renderDigitalRain(const std::vector<char> &glyphs,
         continue;
       }
 
-      const uint16_t color = panelColor(blendOverBackground(baseColor, cellBrightness));
-      drawTinyGlyph(x, y, glyph, color, /*scale=*/1);
+      const uint16_t color = (highlightsEnabled && lead[index])
+                                  ? kPureWhite
+                                  : blendOverBackground(baseColor, cellBrightness);
+      drawTinyGlyph(x, y, glyph, color, glyphScale);
     }
   }
 

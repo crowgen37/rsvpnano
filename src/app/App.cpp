@@ -181,11 +181,11 @@ namespace {
     };
 
     enum DigitalRainSettingsItem : size_t {
-        DigitalRainColorGreen,
-        DigitalRainColorBlue,
-        DigitalRainColorYellow,
-        DigitalRainColorRed,
-        DigitalRainExit,
+        DigitalRainSettingsBack,
+        DigitalRainSettingsFontSize,
+        DigitalRainSettingsColor,
+        DigitalRainSettingsHighlights,
+        DigitalRainSettingsRotate,
         DigitalRainSettingsItemCount,
     };
 
@@ -294,6 +294,10 @@ namespace {
     constexpr const char* kPrefTypographyAnchor = "type_anc";
     constexpr const char* kPrefTypographyGuideWidth = "type_wid";
     constexpr const char* kPrefTypographyGuideGap = "type_gap";
+    constexpr const char* kPrefRainHue = "rain_hue";
+    constexpr const char* kPrefRainFontSize = "rain_fsz";
+    constexpr const char* kPrefRainHighlights = "rain_hlt";
+    constexpr const char* kPrefRainAutoRotate = "rain_rot";
     constexpr const char* kPrefRecentSeq = "seq";
     constexpr const char* kPrefWifiSsid = "wifi_ssid";
     constexpr const char* kPrefWifiPass = "wifi_pass";
@@ -589,6 +593,82 @@ namespace {
         }
     }
 
+    DigitalRain::Hue nextDigitalRainHue(DigitalRain::Hue current) {
+        switch (current) {
+        case DigitalRain::Hue::Green:
+            return DigitalRain::Hue::Blue;
+        case DigitalRain::Hue::Blue:
+            return DigitalRain::Hue::Yellow;
+        case DigitalRain::Hue::Yellow:
+            return DigitalRain::Hue::Red;
+        case DigitalRain::Hue::Red:
+        default:
+            return DigitalRain::Hue::Green;
+        }
+    }
+
+    const char* digitalRainHueLabel(DigitalRain::Hue hue) {
+        switch (hue) {
+        case DigitalRain::Hue::Green:
+            return "Green";
+        case DigitalRain::Hue::Blue:
+            return "Blue";
+        case DigitalRain::Hue::Yellow:
+            return "Yellow";
+        case DigitalRain::Hue::Red:
+            return "Red";
+        }
+        return "Green";
+    }
+
+    DigitalRain::FontSize nextDigitalRainFontSize(DigitalRain::FontSize current) {
+        switch (current) {
+        case DigitalRain::FontSize::Small:
+            return DigitalRain::FontSize::Medium;
+        case DigitalRain::FontSize::Medium:
+            return DigitalRain::FontSize::Large;
+        case DigitalRain::FontSize::Large:
+        default:
+            return DigitalRain::FontSize::Small;
+        }
+    }
+
+    const char* digitalRainFontSizeLabel(DigitalRain::FontSize size) {
+        switch (size) {
+        case DigitalRain::FontSize::Small:
+            return "Small";
+        case DigitalRain::FontSize::Medium:
+            return "Medium";
+        case DigitalRain::FontSize::Large:
+            return "Large";
+        }
+        return "Small";
+    }
+
+    DigitalRain::RotateMode nextDigitalRainRotateMode(DigitalRain::RotateMode current) {
+        switch (current) {
+        case DigitalRain::RotateMode::Landscape:
+            return DigitalRain::RotateMode::Portrait;
+        case DigitalRain::RotateMode::Portrait:
+            return DigitalRain::RotateMode::Auto;
+        case DigitalRain::RotateMode::Auto:
+        default:
+            return DigitalRain::RotateMode::Landscape;
+        }
+    }
+
+    const char* digitalRainRotateModeLabel(DigitalRain::RotateMode mode) {
+        switch (mode) {
+        case DigitalRain::RotateMode::Landscape:
+            return "Landscape";
+        case DigitalRain::RotateMode::Portrait:
+            return "Portrait";
+        case DigitalRain::RotateMode::Auto:
+            return "Auto";
+        }
+        return "Auto";
+    }
+
     App::ReaderMode readerModeFromSetting(uint8_t value) {
         switch (value) {
         case static_cast<uint8_t>(App::ReaderMode::Scroll):
@@ -771,6 +851,28 @@ void App::begin() {
     Board::Audio::begin();
     focusTimer_.begin();
     digitalRain_.begin();
+
+    uint8_t rainHueRaw = preferences_.getUChar(kPrefRainHue, static_cast<uint8_t>(digitalRain_.hue()));
+    if (rainHueRaw > static_cast<uint8_t>(DigitalRain::Hue::Red)) {
+        rainHueRaw = static_cast<uint8_t>(DigitalRain::Hue::Green);
+    }
+    digitalRain_.setHue(static_cast<DigitalRain::Hue>(rainHueRaw));
+
+    uint8_t rainFontSizeRaw =
+        preferences_.getUChar(kPrefRainFontSize, static_cast<uint8_t>(digitalRain_.fontSize()));
+    if (rainFontSizeRaw > static_cast<uint8_t>(DigitalRain::FontSize::Large)) {
+        rainFontSizeRaw = static_cast<uint8_t>(DigitalRain::FontSize::Small);
+    }
+    digitalRain_.setFontSize(static_cast<DigitalRain::FontSize>(rainFontSizeRaw));
+
+    digitalRain_.setHighlights(preferences_.getBool(kPrefRainHighlights, digitalRain_.highlightsEnabled()));
+
+    uint8_t rainRotateRaw =
+        preferences_.getUChar(kPrefRainAutoRotate, static_cast<uint8_t>(digitalRain_.rotateMode()));
+    if (rainRotateRaw > static_cast<uint8_t>(DigitalRain::RotateMode::Auto)) {
+        rainRotateRaw = static_cast<uint8_t>(DigitalRain::RotateMode::Auto);
+    }
+    digitalRain_.setRotateMode(static_cast<DigitalRain::RotateMode>(rainRotateRaw));
 
 #if RSVP_USB_TRANSFER_ENABLED && RSVP_USB_TRANSFER_AUTO_START
     state_ = AppState::Booting;
@@ -1401,6 +1503,28 @@ void App::reloadRuntimePreferences(uint32_t nowMs, bool rerender) {
     if (readerFontSizeIndex_ >= kReaderFontSizeCount) {
         readerFontSizeIndex_ = 0;
     }
+
+    uint8_t rainHueRaw = preferences_.getUChar(kPrefRainHue, static_cast<uint8_t>(digitalRain_.hue()));
+    if (rainHueRaw > static_cast<uint8_t>(DigitalRain::Hue::Red)) {
+        rainHueRaw = static_cast<uint8_t>(DigitalRain::Hue::Green);
+    }
+    digitalRain_.setHue(static_cast<DigitalRain::Hue>(rainHueRaw));
+
+    uint8_t rainFontSizeRaw =
+        preferences_.getUChar(kPrefRainFontSize, static_cast<uint8_t>(digitalRain_.fontSize()));
+    if (rainFontSizeRaw > static_cast<uint8_t>(DigitalRain::FontSize::Large)) {
+        rainFontSizeRaw = static_cast<uint8_t>(DigitalRain::FontSize::Small);
+    }
+    digitalRain_.setFontSize(static_cast<DigitalRain::FontSize>(rainFontSizeRaw));
+
+    digitalRain_.setHighlights(preferences_.getBool(kPrefRainHighlights, digitalRain_.highlightsEnabled()));
+
+    uint8_t rainRotateRaw =
+        preferences_.getUChar(kPrefRainAutoRotate, static_cast<uint8_t>(digitalRain_.rotateMode()));
+    if (rainRotateRaw > static_cast<uint8_t>(DigitalRain::RotateMode::Auto)) {
+        rainRotateRaw = static_cast<uint8_t>(DigitalRain::RotateMode::Auto);
+    }
+    digitalRain_.setRotateMode(static_cast<DigitalRain::RotateMode>(rainRotateRaw));
 
     switch (preferences_.getUChar(kPrefFooterMetricMode, static_cast<uint8_t>(footerMetricMode_))) {
     case static_cast<uint8_t>(FooterMetricMode::ChapterTime):
@@ -2420,11 +2544,11 @@ void App::applyFocusTimerTouch(const TouchEvent& event, uint32_t nowMs) {
 }
 
 void App::applyDigitalRainTouch(const TouchEvent& event, uint32_t nowMs) {
-    if (event.gesture == Input::Gesture::Tapped) {
+    if (event.gesture == Input::Gesture::BottomEdgeSwiped) {
         openDigitalRainSettings();
         return;
     }
-    if (event.gesture != Input::Gesture::TouchMove) {
+    if (event.gesture != Input::Gesture::Tapped && event.gesture != Input::Gesture::TouchMove) {
         return;
     }
     digitalRain_.onTouch(event.x, event.y, nowMs);
@@ -2488,7 +2612,10 @@ void App::resetDigitalRain() {
 }
 
 void App::openDigitalRainSettings() {
-    digitalRainSettingsSelectedIndex_ = static_cast<size_t>(digitalRain_.hue());
+    if (digitalRainSettingsSelectedIndex_ >= DigitalRainSettingsItemCount ||
+        digitalRainSettingsSelectedIndex_ == DigitalRainSettingsBack) {
+        digitalRainSettingsSelectedIndex_ = DigitalRainSettingsFontSize;
+    }
     menuScreen_ = MenuScreen::DigitalRainSettings;
     renderDigitalRainSettings();
 }
@@ -2496,29 +2623,31 @@ void App::openDigitalRainSettings() {
 void App::selectDigitalRainSettingsItem(uint32_t nowMs) {
     (void)nowMs;
     switch (digitalRainSettingsSelectedIndex_) {
-    case DigitalRainColorGreen:
-        digitalRain_.setHue(DigitalRain::Hue::Green);
-        break;
-    case DigitalRainColorBlue:
-        digitalRain_.setHue(DigitalRain::Hue::Blue);
-        break;
-    case DigitalRainColorYellow:
-        digitalRain_.setHue(DigitalRain::Hue::Yellow);
-        break;
-    case DigitalRainColorRed:
-        digitalRain_.setHue(DigitalRain::Hue::Red);
-        break;
-    case DigitalRainExit:
-        resetDigitalRain();
-        menuScreen_ = MenuScreen::Main;
-        renderMainMenu();
+    case DigitalRainSettingsBack:
+        menuScreen_ = MenuScreen::DigitalRainSession;
+        renderDigitalRainSession();
         return;
-    default:
+    case DigitalRainSettingsFontSize:
+        digitalRain_.setFontSize(nextDigitalRainFontSize(digitalRain_.fontSize()));
+        preferences_.putUChar(kPrefRainFontSize, static_cast<uint8_t>(digitalRain_.fontSize()));
         break;
+    case DigitalRainSettingsColor:
+        digitalRain_.setHue(nextDigitalRainHue(digitalRain_.hue()));
+        preferences_.putUChar(kPrefRainHue, static_cast<uint8_t>(digitalRain_.hue()));
+        break;
+    case DigitalRainSettingsHighlights:
+        digitalRain_.setHighlights(!digitalRain_.highlightsEnabled());
+        preferences_.putBool(kPrefRainHighlights, digitalRain_.highlightsEnabled());
+        break;
+    case DigitalRainSettingsRotate:
+        digitalRain_.setRotateMode(nextDigitalRainRotateMode(digitalRain_.rotateMode()));
+        preferences_.putUChar(kPrefRainAutoRotate, static_cast<uint8_t>(digitalRain_.rotateMode()));
+        break;
+    default:
+        return;
     }
 
-    menuScreen_ = MenuScreen::DigitalRainSession;
-    renderDigitalRainSession();
+    renderDigitalRainSettings();
 }
 
 void App::rebuildFocusTimerGenreMenuItems() {
@@ -6099,34 +6228,41 @@ uint16_t App::digitalRainHueColor(DigitalRain::Hue hue) const {
 }
 
 void App::renderDigitalRainSession() {
-    applyUiOrientation(Board::UiOrientation::Portrait);
+    applyUiOrientation(digitalRain_.uiOrientation());
 
     const uint16_t columns = digitalRain_.gridColumns();
     const uint16_t rows = digitalRain_.gridRows();
     std::vector<char> glyphs(static_cast<size_t>(columns) * rows, '\0');
     std::vector<uint8_t> brightness(static_cast<size_t>(columns) * rows, 0);
+    std::vector<bool> lead(static_cast<size_t>(columns) * rows, false);
     for (uint16_t row = 0; row < rows; ++row) {
         for (uint16_t col = 0; col < columns; ++col) {
             const size_t index = static_cast<size_t>(row) * columns + col;
             glyphs[index] = digitalRain_.glyphAt(col, row);
             brightness[index] = digitalRain_.brightnessAt(col, row);
+            lead[index] = digitalRain_.isLeadGlyph(col, row);
         }
     }
 
-    display_.renderDigitalRain(glyphs, brightness, columns, rows, DigitalRain::kCellWidth,
-                               DigitalRain::kCellHeight, digitalRainHueColor(digitalRain_.hue()),
+    display_.renderDigitalRain(glyphs, brightness, lead, columns, rows, digitalRain_.cellWidth(),
+                               digitalRain_.cellHeight(), digitalRainHueColor(digitalRain_.hue()),
+                               digitalRain_.glyphScale(), digitalRain_.highlightsEnabled(),
                                digitalRain_.frameCounter());
 }
 
 void App::renderDigitalRainSettings() {
-    applyUiOrientation(Board::UiOrientation::Portrait);
+    applyUiOrientation(Board::UiOrientation::Landscape);
+    if (digitalRainSettingsSelectedIndex_ >= DigitalRainSettingsItemCount) {
+        digitalRainSettingsSelectedIndex_ = DigitalRainSettingsFontSize;
+    }
+
     std::vector<String> items;
     items.reserve(DigitalRainSettingsItemCount);
-    items.push_back("Color: Green");
-    items.push_back("Color: Blue");
-    items.push_back("Color: Yellow");
-    items.push_back("Color: Red");
-    items.push_back("Exit to Menu");
+    items.push_back(uiText(UiText::Back));
+    items.push_back(String("Font size: ") + digitalRainFontSizeLabel(digitalRain_.fontSize()));
+    items.push_back(String("Color: ") + digitalRainHueLabel(digitalRain_.hue()));
+    items.push_back("Highlights: " + (digitalRain_.highlightsEnabled() ? uiText(UiText::On) : uiText(UiText::Off)));
+    items.push_back(String("Rotate: ") + digitalRainRotateModeLabel(digitalRain_.rotateMode()));
     display_.renderMenu(items, digitalRainSettingsSelectedIndex_);
 }
 
