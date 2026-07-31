@@ -2593,6 +2593,12 @@ void App::resetFocusTimer() {
 
 void App::openDigitalRain() {
     digitalRain_.open();
+    // Touch/gesture orientation (edge-swipe zones, tap coordinates) stays
+    // fixed to landscape here regardless of the display's own tilt-follow
+    // rotation, so the bottom-edge swipe that opens settings always lines
+    // up with the physical landscape-bottom edge rather than rotating with
+    // whatever the rain is currently doing in Auto mode.
+    Board::Imu::setUiOrientation(Board::UiOrientation::LandscapeFlipped);
     menuScreen_ = MenuScreen::DigitalRainSession;
     state_ = AppState::Menu;
     renderMenu();
@@ -6228,7 +6234,10 @@ uint16_t App::digitalRainHueColor(DigitalRain::Hue hue) const {
 }
 
 void App::renderDigitalRainSession() {
-    applyUiOrientation(digitalRain_.uiOrientation());
+    // Display-only: touch/gesture orientation is pinned to landscape once,
+    // in openDigitalRain(), and must not follow the rain's own tilt-driven
+    // rotation here.
+    display_.setUiOrientation(digitalRain_.uiOrientation());
 
     const uint16_t columns = digitalRain_.gridColumns();
     const uint16_t rows = digitalRain_.gridRows();
@@ -6251,7 +6260,7 @@ void App::renderDigitalRainSession() {
 }
 
 void App::renderDigitalRainSettings() {
-    applyUiOrientation(Board::UiOrientation::Landscape);
+    applyUiOrientation(Board::UiOrientation::LandscapeFlipped);
     if (digitalRainSettingsSelectedIndex_ >= DigitalRainSettingsItemCount) {
         digitalRainSettingsSelectedIndex_ = DigitalRainSettingsFontSize;
     }

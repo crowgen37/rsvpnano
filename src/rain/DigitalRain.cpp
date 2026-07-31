@@ -38,7 +38,7 @@ void DigitalRain::open() {
   frameCounter_ = 0;
   lastFrameMs_ = 0;
   uiOrientation_ =
-      (rotateMode_ == RotateMode::Landscape) ? Board::UiOrientation::Landscape : Board::UiOrientation::Portrait;
+      (rotateMode_ == RotateMode::Landscape) ? Board::UiOrientation::LandscapeFlipped : Board::UiOrientation::Portrait;
   orientationCandidate_ = uiOrientation_;
   orientationCandidateSinceMs_ = 0;
   resizeGrid();
@@ -115,7 +115,8 @@ void DigitalRain::setRotateMode(RotateMode mode) {
   }
 
   rotateMode_ = mode;
-  uiOrientation_ = (mode == RotateMode::Landscape) ? Board::UiOrientation::Landscape : Board::UiOrientation::Portrait;
+  uiOrientation_ =
+      (mode == RotateMode::Landscape) ? Board::UiOrientation::LandscapeFlipped : Board::UiOrientation::Portrait;
   orientationCandidate_ = uiOrientation_;
   orientationCandidateSinceMs_ = 0;
 
@@ -139,14 +140,36 @@ void DigitalRain::updateTiltOrientation(uint32_t nowMs) {
 
   // Full 4-way gravity follow: whichever of the two in-plane axes is
   // dominant decides portrait vs. landscape, and its sign decides which of
-  // the two flipped/unflipped variants is currently "down".
-  Board::UiOrientation candidate;
+  // the two flipped/unflipped variants is currently "down". The raw
+  // quadrant split lines up correctly with the accelerometer axes; its
+  // labels just come out one 90-degree step off from the confirmed-correct
+  // fixed Landscape/Portrait values, so rotate the result one step
+  // counter-clockwise (Portrait -> LandscapeFlipped -> PortraitFlipped ->
+  // Landscape -> Portrait) to match.
+  Board::UiOrientation rawCandidate;
   if (fabsf(x) >= kFlipAxisThreshold && fabsf(y) <= kCrossAxisLimit) {
-    candidate = (x >= 0.0f) ? Board::UiOrientation::LandscapeFlipped : Board::UiOrientation::Landscape;
+    rawCandidate = (x >= 0.0f) ? Board::UiOrientation::Landscape : Board::UiOrientation::LandscapeFlipped;
   } else if (fabsf(y) >= kFlipAxisThreshold && fabsf(x) <= kCrossAxisLimit) {
-    candidate = (y <= 0.0f) ? Board::UiOrientation::Portrait : Board::UiOrientation::PortraitFlipped;
+    rawCandidate = (y <= 0.0f) ? Board::UiOrientation::Portrait : Board::UiOrientation::PortraitFlipped;
   } else {
     return;
+  }
+
+  Board::UiOrientation candidate;
+  switch (rawCandidate) {
+    case Board::UiOrientation::Portrait:
+      candidate = Board::UiOrientation::LandscapeFlipped;
+      break;
+    case Board::UiOrientation::LandscapeFlipped:
+      candidate = Board::UiOrientation::PortraitFlipped;
+      break;
+    case Board::UiOrientation::PortraitFlipped:
+      candidate = Board::UiOrientation::Landscape;
+      break;
+    case Board::UiOrientation::Landscape:
+    default:
+      candidate = Board::UiOrientation::Portrait;
+      break;
   }
 
   if (candidate != orientationCandidate_) {
