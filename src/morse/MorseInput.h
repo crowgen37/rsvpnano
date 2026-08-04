@@ -4,11 +4,15 @@
 #include <stdint.h>
 
 // Decodes touch press/release timing into International Morse Code text.
-// A press shorter than kDotMaxPressMs is a dot, longer is a dash; a pause
-// longer than kLetterGapMs closes out the pending letter, and one longer
-// than kWordGapMs also inserts a word space. Eight dots in a row (morse's
-// own error prosign) deletes the last word instead of decoding as a
-// letter -- there's no separate backspace control.
+// Thresholds are all relative to a running estimate of the user's own "dit"
+// length (unitMs_), not fixed millisecond values -- every press updates
+// that estimate, so the decoder adapts to however fast or slow someone
+// actually taps rather than assuming one fixed speed. A press shorter than
+// ~2 units is a dot, longer is a dash; a pause of ~3 units closes the
+// pending letter, ~7 units also inserts a word space (standard morse
+// timing ratios). Eight dots in a row (morse's own error prosign) deletes
+// the last word instead of decoding as a letter -- there's no separate
+// backspace control.
 class MorseInput {
  public:
   void reset();
@@ -22,6 +26,7 @@ class MorseInput {
 
   const String &composedText() const { return text_; }
   const String &pendingSymbols() const { return symbols_; }
+  float unitMs() const { return unitMs_; }
 
  private:
   void flushPendingLetter(bool addWordSpace);
@@ -33,6 +38,7 @@ class MorseInput {
   bool havePending_ = false;
   uint32_t pressStartMs_ = 0;
   uint32_t lastReleaseMs_ = 0;
+  float unitMs_ = 150.0f;
   String symbols_;
   String text_;
 };

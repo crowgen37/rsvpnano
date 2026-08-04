@@ -1,13 +1,22 @@
 #include "morse/MorseInput.h"
 
+#include <algorithm>
+
 namespace {
 
-// Prototype tuning: capacitive-touch morse timing feel is genuinely unknown
-// until tried on real hardware, per the design note this mode implements.
-// Adjust freely once that's been tested.
-constexpr uint32_t kDotMaxPressMs = 200;
-constexpr uint32_t kLetterGapMs = 400;
-constexpr uint32_t kWordGapMs = 1000;
+// Standard morse timing ratios, all relative to the running dit-length
+// estimate (unitMs_) rather than fixed values: a dash is ~3 units, so the
+// dot/dash boundary sits at the midpoint (2 units); an inter-letter gap is
+// ~3 units, an inter-word gap ~7 units.
+constexpr float kDotDashBoundaryUnits = 2.0f;
+constexpr float kLetterGapUnits = 3.0f;
+constexpr float kWordGapUnits = 7.0f;
+// How quickly the unit estimate follows each new press (0 = never moves,
+// 1 = jumps straight to the latest press) and the range it's clamped to so
+// one stray very-long/very-short tap can't derail it entirely.
+constexpr float kUnitSmoothing = 0.25f;
+constexpr float kMinUnitMs = 60.0f;
+constexpr float kMaxUnitMs = 600.0f;
 constexpr uint8_t kErrorProsignDots = 8;
 
 struct MorseEntry {
@@ -51,10 +60,18 @@ void MorseInput::onPressEnd(uint32_t nowMs) {
   }
   pressActive_ = false;
 
-  const uint32_t pressDurationMs = nowMs - pressStartMs_;
-  symbols_ += (pressDurationMs < kDotMaxPressMs) ? '.' : '-';
+  const float pressDurationMs = static_cast<float>(nowMs - pressStartMs_);
+  const bool isDash = pressDurationMs >= unitMs_ * kDotDashBoundaryUnits;
+  symbols_ += isDash ? '-' : '.';
   havePending_ = true;
   lastReleaseMs_ = nowMs;
+
+  // Fold this press into the running unit estimate -- a dash gets divided
+  // back down to its dit-equivalent length first, so both symbol types
+  // keep the estimate tracking the user's actual current speed.
+  const float observedUnitMs = isDash ? (pressDurationMs / 3.0f) : pressDurationMs;
+  unitMs_ = unitMs_ * (1.0f - kUnitSmoothing) + observedUnitMs * kUnitSmoothing;
+  unitMs_ = std::max(kMinUnitMs, std::min(kMaxUnitMs, unitMs_));
 
   if (symbols_.length() >= kErrorProsignDots && isAllDots(symbols_)) {
     deleteLastWord();
@@ -68,12 +85,12 @@ void MorseInput::update(uint32_t nowMs) {
     return;
   }
 
-  const uint32_t silenceMs = nowMs - lastReleaseMs_;
-  if (silenceMs < kLetterGapMs) {
+  const float silenceMs = static_cast<float>(nowMs - lastReleaseMs_);
+  if (silenceMs < unitMs_ * kLetterGapUnits) {
     return;
   }
 
-  flushPendingLetter(silenceMs >= kWordGapMs);
+  flushPendingLetter(silenceMs >= unitMs_ * kWordGapUnits);
 }
 
 void MorseInput::flushPendingLetter(bool addWordSpace) {
