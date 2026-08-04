@@ -1259,6 +1259,15 @@ bool App::handleMenuInput(const Input::Event& event, uint32_t nowMs) {
         return true;
     }
 
+    if (menuScreen_ == MenuScreen::MorseNoteSession &&
+        Input::hasControl(event.controls, Input::InputPrimary)) {
+        // BOOT is the morse key here -- its classified gestures (which lose
+        // the actual hold duration and would otherwise fire standby/menu
+        // navigation) are swallowed; updateMorseNote() polls the raw pin
+        // state directly instead.
+        return true;
+    }
+
     if (Input::hasControl(event.controls, Input::InputPrimary) && event.gesture == Input::Gesture::LongPressed) {
         Serial.println("[input] primary long press -> standby");
         enterStandby(nowMs);
@@ -2677,6 +2686,9 @@ void App::selectDigitalRainSettingsItem(uint32_t nowMs) {
 
 void App::openMorseNote() {
     morseInput_.reset();
+    morseBootRawPressed_ = false;
+    morseBootDebouncedPressed_ = false;
+    morseBootCandidateSinceMs_ = 0;
     // Touch/gesture orientation stays pinned to landscape the whole time
     // this mode is open -- unlike Digital Rain, nothing here follows tilt.
     Board::Imu::setUiOrientation(Board::UiOrientation::LandscapeFlipped);
@@ -2690,32 +2702,43 @@ void App::updateMorseNote(uint32_t nowMs) {
         return;
     }
 
+    // BOOT is the morse key. Its raw pin state is polled directly here
+    // (with a small local debounce) rather than going through the shared
+    // Input:: classifier, because that classifier only ever reports
+    // "short press" / "long press" against fixed thresholds and throws
+    // the actual hold duration away -- exactly what a dot/dash decision
+    // needs.
+    constexpr uint32_t kMorseBootDebounceMs = 20;
+    const bool rawPressed = Input::hasControl(Board::Input::currentControls(), Input::InputPrimary);
+    if (rawPressed != morseBootRawPressed_) {
+        morseBootRawPressed_ = rawPressed;
+        morseBootCandidateSinceMs_ = nowMs;
+    }
+    if (morseBootRawPressed_ != morseBootDebouncedPressed_ &&
+        (nowMs - morseBootCandidateSinceMs_) >= kMorseBootDebounceMs) {
+        morseBootDebouncedPressed_ = morseBootRawPressed_;
+        if (morseBootDebouncedPressed_) {
+            morseInput_.onPressStart(nowMs);
+        } else {
+            morseInput_.onPressEnd(nowMs);
+        }
+    }
+
     morseInput_.update(nowMs);
     renderMorseNoteSession();
 }
 
 void App::resetMorseNote() {
     morseInput_.reset();
+    morseBootRawPressed_ = false;
+    morseBootDebouncedPressed_ = false;
+    morseBootCandidateSinceMs_ = 0;
 }
 
 void App::applyMorseNoteTouch(const TouchEvent& event, uint32_t nowMs) {
-    if (event.gesture == Input::Gesture::TouchStart) {
-        morseInput_.onPressStart(nowMs);
-        renderMorseNoteSession();
-        return;
-    }
+    (void)nowMs;
     if (event.gesture == Input::Gesture::BottomEdgeSwiped) {
-        morseInput_.cancelPress();
         openMorseNoteSettings();
-        return;
-    }
-    if (event.gesture == Input::Gesture::Tapped || event.gesture == Input::Gesture::TouchEnd) {
-        morseInput_.onPressEnd(nowMs);
-        renderMorseNoteSession();
-        return;
-    }
-    if (event.gesture == Input::Gesture::TopEdgeSwiped) {
-        morseInput_.cancelPress();
     }
 }
 
@@ -6422,7 +6445,7 @@ void App::renderMorseNoteSession() {
         liveValue += " [" + morseInput_.pendingSymbols() + "]";
     }
     const String title = "Morse Note (unit " + String(static_cast<int>(morseInput_.unitMs())) + "ms)";
-    display_.renderTextEntry(title, "Tap: dot/dash. Swipe up from bottom edge: menu.", liveValue, "", {},
+    display_.renderTextEntry(title, "BOOT: dot/dash. Swipe up from bottom edge: menu.", liveValue, "", {},
                              /*showBatteryBadge=*/false);
 }
 

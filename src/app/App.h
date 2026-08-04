@@ -524,6 +524,9 @@ private:
     size_t focusTimerGenreSelectedIndex_ = 0;
     size_t digitalRainSettingsSelectedIndex_ = 0;
     size_t morseNoteSettingsSelectedIndex_ = 0;
+    bool morseBootRawPressed_ = false;
+    bool morseBootDebouncedPressed_ = false;
+    uint32_t morseBootCandidateSinceMs_ = 0;
     uint8_t standbyTimerIndex_ = 0;
     uint8_t brightnessLevelIndex_ = 4;
     uint8_t readerFontSizeIndex_ = 0;
