@@ -2846,7 +2846,7 @@ void DisplayManager::renderLibrary(const std::vector<LibraryItem> &items, size_t
 
 void DisplayManager::renderTextEntry(const String &title, const String &prompt, const String &value,
                                      const String &helperText,
-                                     const std::vector<Button> &buttons) {
+                                     const std::vector<Button> &buttons, bool showBatteryBadge) {
   String renderKey;
   renderKey.reserve(80 + title.length() + prompt.length() + value.length() + helperText.length() +
                     batteryLabel_.length() + (buttons.size() * 28));
@@ -2858,6 +2858,8 @@ void DisplayManager::renderTextEntry(const String &title, const String &prompt, 
   renderKey += value;
   renderKey += "|";
   renderKey += helperText;
+  renderKey += "|bb:";
+  renderKey += String(showBatteryBadge ? 1 : 0);
   renderKey += "|b:";
   renderKey += batteryLabel_;
   renderKey += "|d:";
@@ -2978,7 +2980,9 @@ void DisplayManager::renderTextEntry(const String &title, const String &prompt, 
     drawTinyTextAt(fallbackLabel, fallbackX, fallbackY, wordColor(), fallbackScale);
   }
 
-  drawBatteryBadge();
+  if (showBatteryBadge) {
+    drawBatteryBadge();
+  }
   flushScaledFrame(scale, virtualWidth, virtualHeight);
 }
 

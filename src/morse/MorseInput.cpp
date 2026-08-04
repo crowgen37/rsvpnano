@@ -41,6 +41,7 @@ constexpr size_t kMorseTableSize = sizeof(kMorseTable) / sizeof(kMorseTable[0]);
 void MorseInput::reset() {
   pressActive_ = false;
   havePending_ = false;
+  awaitingWordGap_ = false;
   pressStartMs_ = 0;
   lastReleaseMs_ = 0;
   symbols_ = "";
@@ -50,6 +51,9 @@ void MorseInput::reset() {
 void MorseInput::onPressStart(uint32_t nowMs) {
   pressActive_ = true;
   pressStartMs_ = nowMs;
+  // A new press means the preceding silence is over -- if it hadn't yet
+  // reached the word-gap threshold, it never will now.
+  awaitingWordGap_ = false;
 }
 
 void MorseInput::cancelPress() { pressActive_ = false; }
@@ -77,23 +81,35 @@ void MorseInput::onPressEnd(uint32_t nowMs) {
     deleteLastWord();
     symbols_ = "";
     havePending_ = false;
+    awaitingWordGap_ = false;
   }
 }
 
 void MorseInput::update(uint32_t nowMs) {
-  if (pressActive_ || !havePending_) {
+  if (pressActive_) {
     return;
   }
 
   const float silenceMs = static_cast<float>(nowMs - lastReleaseMs_);
-  if (silenceMs < unitMs_ * kLetterGapUnits) {
-    return;
+
+  // The letter-gap threshold is shorter than the word-gap one, so it
+  // always fires first -- flushing the letter here must not stop the same
+  // silence from later being recognized as a word gap too.
+  if (havePending_ && silenceMs >= unitMs_ * kLetterGapUnits) {
+    flushPendingLetter();
+    havePending_ = false;
+    awaitingWordGap_ = true;
   }
 
-  flushPendingLetter(silenceMs >= unitMs_ * kWordGapUnits);
+  if (awaitingWordGap_ && silenceMs >= unitMs_ * kWordGapUnits) {
+    if (text_.length() > 0 && text_[text_.length() - 1] != ' ') {
+      text_ += ' ';
+    }
+    awaitingWordGap_ = false;
+  }
 }
 
-void MorseInput::flushPendingLetter(bool addWordSpace) {
+void MorseInput::flushPendingLetter() {
   if (symbols_.length() > 0) {
     const char decoded = decodeSymbols(symbols_);
     if (decoded != '\0') {
@@ -101,10 +117,6 @@ void MorseInput::flushPendingLetter(bool addWordSpace) {
     }
   }
   symbols_ = "";
-  havePending_ = false;
-  if (addWordSpace && text_.length() > 0 && text_[text_.length() - 1] != ' ') {
-    text_ += ' ';
-  }
 }
 
 void MorseInput::deleteLastWord() {

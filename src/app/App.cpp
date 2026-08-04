@@ -6422,7 +6422,8 @@ void App::renderMorseNoteSession() {
         liveValue += " [" + morseInput_.pendingSymbols() + "]";
     }
     const String title = "Morse Note (unit " + String(static_cast<int>(morseInput_.unitMs())) + "ms)";
-    display_.renderTextEntry(title, "Tap: dot/dash. Swipe up from bottom edge: menu.", liveValue, "", {});
+    display_.renderTextEntry(title, "Tap: dot/dash. Swipe up from bottom edge: menu.", liveValue, "", {},
+                             /*showBatteryBadge=*/false);
 }
 
 void App::renderMorseNoteSettings() {

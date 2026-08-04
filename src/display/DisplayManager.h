@@ -111,7 +111,8 @@ class DisplayManager {
   void renderMenu(const std::vector<String> &items, size_t selectedIndex);
   void renderLibrary(const std::vector<LibraryItem> &items, size_t selectedIndex);
   void renderTextEntry(const String &title, const String &prompt, const String &value,
-                       const String &helperText, const std::vector<Button> &buttons);
+                       const String &helperText, const std::vector<Button> &buttons,
+                       bool showBatteryBadge = true);
   void renderStatus(const String &title, const String &line1 = "", const String &line2 = "");
   void renderProgress(const String &title, const String &line1 = "", const String &line2 = "",
                       int progressPercent = -1);

@@ -29,13 +29,18 @@ class MorseInput {
   float unitMs() const { return unitMs_; }
 
  private:
-  void flushPendingLetter(bool addWordSpace);
+  void flushPendingLetter();
   void deleteLastWord();
   static char decodeSymbols(const String &symbols);
   static bool isAllDots(const String &symbols);
 
   bool pressActive_ = false;
   bool havePending_ = false;
+  // True from the moment a letter gets flushed until either a word space
+  // gets inserted or a new press starts -- lets the word-gap check keep
+  // watching the same silence after the letter-gap check has already fired
+  // and cleared havePending_.
+  bool awaitingWordGap_ = false;
   uint32_t pressStartMs_ = 0;
   uint32_t lastReleaseMs_ = 0;
   float unitMs_ = 150.0f;
