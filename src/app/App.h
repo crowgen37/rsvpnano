@@ -12,6 +12,7 @@
 #include "book/BookMetadata.h"
 #include "display/DisplayManager.h"
 #include "input/Input.h"
+#include "morse/MorseInput.h"
 #include "rain/DigitalRain.h"
 #include "reader/ReadingLoop.h"
 #include "rss/RssFeedManager.h"
@@ -103,6 +104,8 @@ private:
         FocusTimerSession,
         DigitalRainSession,
         DigitalRainSettings,
+        MorseNoteSession,
+        MorseNoteSettings,
     };
 
     enum class FooterMetricMode : uint8_t {
@@ -237,6 +240,7 @@ private:
     void applyMenuTouchGesture(const TouchEvent& event, uint32_t nowMs);
     void applyFocusTimerTouch(const TouchEvent& event, uint32_t nowMs);
     void applyDigitalRainTouch(const TouchEvent& event, uint32_t nowMs);
+    void applyMorseNoteTouch(const TouchEvent& event, uint32_t nowMs);
     void moveMenuSelection(int direction);
     void selectMenuItem(uint32_t nowMs);
     bool isSettingsMenuScreen(MenuScreen screen) const;
@@ -256,6 +260,12 @@ private:
     void resetDigitalRain();
     void openDigitalRainSettings();
     void selectDigitalRainSettingsItem(uint32_t nowMs);
+    void openMorseNote();
+    void updateMorseNote(uint32_t nowMs);
+    void resetMorseNote();
+    void openMorseNoteSettings();
+    void selectMorseNoteSettingsItem(uint32_t nowMs);
+    void saveMorseNote();
     void openSettings();
     void selectSettingsItem(uint32_t nowMs);
     void selectRestructuredSettingsItem(uint32_t nowMs);
@@ -390,6 +400,8 @@ private:
     void renderDigitalRainSession();
     void renderDigitalRainSettings();
     uint16_t digitalRainHueColor(DigitalRain::Hue hue) const;
+    void renderMorseNoteSession();
+    void renderMorseNoteSettings();
     void renderActiveReader(uint32_t nowMs);
     bool updateChapterTransition(uint32_t nowMs);
     bool maybeStartChapterTransition(size_t previousWordIndex, size_t currentWordIndex, uint32_t nowMs);
@@ -443,6 +455,7 @@ private:
     const char* inputGestureName(Input::Gesture gesture) const;
     bool isFocusTimerMenuScreen(MenuScreen screen) const;
     bool isDigitalRainMenuScreen(MenuScreen screen) const;
+    bool isMorseNoteMenuScreen(MenuScreen screen) const;
     bool scrollModeEnabled() const;
     void applyUiOrientation(Board::UiOrientation orientation);
     void applyReaderUiOrientation();
@@ -461,6 +474,7 @@ private:
     DisplayManager display_;
     FocusTimer focusTimer_;
     DigitalRain digitalRain_;
+    MorseInput morseInput_;
     ReadingLoop reader_;
     StorageManager storage_;
     IndexedBookStore activeBookStore_;
@@ -509,6 +523,7 @@ private:
     size_t quickSyncSelectedIndex_ = 0;
     size_t focusTimerGenreSelectedIndex_ = 0;
     size_t digitalRainSettingsSelectedIndex_ = 0;
+    size_t morseNoteSettingsSelectedIndex_ = 0;
     uint8_t standbyTimerIndex_ = 0;
     uint8_t brightnessLevelIndex_ = 4;
     uint8_t readerFontSizeIndex_ = 0;

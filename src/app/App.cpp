@@ -7,6 +7,7 @@
 
 #include "board/BoardConfig.h"
 #include "board/BoardInput.h"
+#include "storage/fs/StoragePaths.h"
 #include "storage/index/ReadingProgress.h"
 
 #ifndef RSVP_USB_TRANSFER_ENABLED
@@ -176,6 +177,7 @@ namespace {
         QuickSettingsTheme,
         QuickSettingsFocusTimer,
         QuickSettingsDigitalRain,
+        QuickSettingsMorseNote,
         QuickSettingsSync,
         QuickSettingsItemCount,
     };
@@ -187,6 +189,13 @@ namespace {
         DigitalRainSettingsHighlights,
         DigitalRainSettingsRotate,
         DigitalRainSettingsItemCount,
+    };
+
+    enum MorseNoteSettingsItem : size_t {
+        MorseNoteSettingsBack,
+        MorseNoteSettingsSave,
+        MorseNoteSettingsDiscard,
+        MorseNoteSettingsItemCount,
     };
 
     enum QuickSyncItem : size_t {
@@ -298,6 +307,7 @@ namespace {
     constexpr const char* kPrefRainFontSize = "rain_fsz";
     constexpr const char* kPrefRainHighlights = "rain_hlt";
     constexpr const char* kPrefRainAutoRotate = "rain_rot";
+    constexpr const char* kPrefMorseNoteCounter = "morse_cnt";
     constexpr const char* kPrefRecentSeq = "seq";
     constexpr const char* kPrefWifiSsid = "wifi_ssid";
     constexpr const char* kPrefWifiPass = "wifi_pass";
@@ -958,6 +968,7 @@ void App::update(uint32_t nowMs) {
     maybeOpenUpdateConfirm(nowMs);
     updateFocusTimer(nowMs);
     updateDigitalRain(nowMs);
+    updateMorseNote(nowMs);
     updateReader(nowMs);
     updateWpmFeedback(nowMs);
     maybeSaveReadingPosition(nowMs);
@@ -980,6 +991,9 @@ void App::update(uint32_t nowMs) {
         isIdle = false;
     }
     if (state_ == AppState::Menu && isDigitalRainMenuScreen(menuScreen_)) {
+        isIdle = false;
+    }
+    if (state_ == AppState::Menu && isMorseNoteMenuScreen(menuScreen_)) {
         isIdle = false;
     }
     if (otaCheckInProgress_) {
@@ -1237,6 +1251,8 @@ bool App::handleMenuInput(const Input::Event& event, uint32_t nowMs) {
             applyFocusTimerTouch(event, nowMs);
         } else if (menuScreen_ == MenuScreen::DigitalRainSession) {
             applyDigitalRainTouch(event, nowMs);
+        } else if (menuScreen_ == MenuScreen::MorseNoteSession) {
+            applyMorseNoteTouch(event, nowMs);
         } else {
             applyMenuTouchGesture(event, nowMs);
         }
@@ -1396,6 +1412,9 @@ void App::toggleMenuFromPowerButton(uint32_t nowMs) {
             }
             if (isDigitalRainMenuScreen(menuScreen_)) {
                 resetDigitalRain();
+            }
+            if (isMorseNoteMenuScreen(menuScreen_)) {
+                resetMorseNote();
             }
             menuScreen_ = MenuScreen::Main;
             renderMainMenu();
@@ -2656,6 +2675,104 @@ void App::selectDigitalRainSettingsItem(uint32_t nowMs) {
     renderDigitalRainSettings();
 }
 
+void App::openMorseNote() {
+    morseInput_.reset();
+    // Touch/gesture orientation stays pinned to landscape the whole time
+    // this mode is open -- unlike Digital Rain, nothing here follows tilt.
+    Board::Imu::setUiOrientation(Board::UiOrientation::LandscapeFlipped);
+    menuScreen_ = MenuScreen::MorseNoteSession;
+    state_ = AppState::Menu;
+    renderMenu();
+}
+
+void App::updateMorseNote(uint32_t nowMs) {
+    if (state_ != AppState::Menu || menuScreen_ != MenuScreen::MorseNoteSession) {
+        return;
+    }
+
+    morseInput_.update(nowMs);
+    renderMorseNoteSession();
+}
+
+void App::resetMorseNote() {
+    morseInput_.reset();
+}
+
+void App::applyMorseNoteTouch(const TouchEvent& event, uint32_t nowMs) {
+    if (event.gesture == Input::Gesture::TouchStart) {
+        morseInput_.onPressStart(nowMs);
+        renderMorseNoteSession();
+        return;
+    }
+    if (event.gesture == Input::Gesture::BottomEdgeSwiped) {
+        morseInput_.cancelPress();
+        openMorseNoteSettings();
+        return;
+    }
+    if (event.gesture == Input::Gesture::Tapped || event.gesture == Input::Gesture::TouchEnd) {
+        morseInput_.onPressEnd(nowMs);
+        renderMorseNoteSession();
+        return;
+    }
+    if (event.gesture == Input::Gesture::TopEdgeSwiped) {
+        morseInput_.cancelPress();
+    }
+}
+
+void App::openMorseNoteSettings() {
+    morseNoteSettingsSelectedIndex_ = MorseNoteSettingsBack;
+    menuScreen_ = MenuScreen::MorseNoteSettings;
+    renderMorseNoteSettings();
+}
+
+void App::selectMorseNoteSettingsItem(uint32_t nowMs) {
+    (void)nowMs;
+    switch (morseNoteSettingsSelectedIndex_) {
+    case MorseNoteSettingsBack:
+        menuScreen_ = MenuScreen::MorseNoteSession;
+        renderMorseNoteSession();
+        return;
+    case MorseNoteSettingsSave:
+        saveMorseNote();
+        resetMorseNote();
+        menuScreen_ = MenuScreen::Main;
+        renderMainMenu();
+        return;
+    case MorseNoteSettingsDiscard:
+        resetMorseNote();
+        menuScreen_ = MenuScreen::Main;
+        renderMainMenu();
+        return;
+    default:
+        return;
+    }
+}
+
+void App::saveMorseNote() {
+    const String& text = morseInput_.composedText();
+    if (text.isEmpty()) {
+        return;
+    }
+
+    if (!Board::Storage::filesystem().exists(StoragePaths::kNotesPath)) {
+        Board::Storage::filesystem().mkdir(StoragePaths::kNotesPath);
+    }
+
+    const uint32_t noteNumber = preferences_.getUInt(kPrefMorseNoteCounter, 0) + 1;
+    preferences_.putUInt(kPrefMorseNoteCounter, noteNumber);
+
+    const String path = String(StoragePaths::kNotesPath) + "/note_" + String(noteNumber) + ".txt";
+    File file = Board::Storage::filesystem().open(path, FILE_WRITE);
+    if (!file) {
+        Serial.printf("[morse] failed to open %s for write\n", path.c_str());
+        return;
+    }
+    file.print(text);
+    file.close();
+    Serial.printf("[morse] saved note to %s (%u chars)\n", path.c_str(),
+                  static_cast<unsigned>(text.length()));
+}
+
 void App::rebuildFocusTimerGenreMenuItems() {
     focusTimerGenreMenuItems_.clear();
     focusTimerGenreMenuItems_.push_back(uiText(UiText::Back));
@@ -2761,6 +2878,9 @@ void App::moveMenuSelection(int direction) {
     } else if (menuScreen_ == MenuScreen::DigitalRainSettings) {
         selectedIndex = &digitalRainSettingsSelectedIndex_;
         itemCount = DigitalRainSettingsItemCount;
+    } else if (menuScreen_ == MenuScreen::MorseNoteSettings) {
+        selectedIndex = &morseNoteSettingsSelectedIndex_;
+        itemCount = MorseNoteSettingsItemCount;
     }
 
     if (itemCount == 0) {
@@ -2834,6 +2954,9 @@ void App::moveMenuSelection(int direction) {
             break;
         case QuickSettingsDigitalRain:
             selectedLabel = "Digital Rain";
+            break;
+        case QuickSettingsMorseNote:
+            selectedLabel = "Morse Note";
             break;
         case QuickSettingsSync:
         default:
@@ -2975,6 +3098,13 @@ void App::selectMenuItem(uint32_t nowMs) {
         selectDigitalRainSettingsItem(nowMs);
         return;
     }
+    if (menuScreen_ == MenuScreen::MorseNoteSession) {
+        return;
+    }
+    if (menuScreen_ == MenuScreen::MorseNoteSettings) {
+        selectMorseNoteSettingsItem(nowMs);
+        return;
+    }
 
     if (Board::Config::ENABLE_RESTRUCTURED_MENU) {
         switch (menuSelectedIndex_) {
@@ -3078,6 +3208,9 @@ void App::selectQuickSettingsItem(uint32_t nowMs) {
         return;
     case QuickSettingsDigitalRain:
         openDigitalRain();
+        return;
+    case QuickSettingsMorseNote:
+        openMorseNote();
         return;
     case QuickSettingsSync:
         openQuickSync();
@@ -5989,7 +6122,8 @@ int App::findBookIndexByPath(const String& path) const {
 }
 
 void App::renderMenu() {
-    if (!isFocusTimerMenuScreen(menuScreen_) && !isDigitalRainMenuScreen(menuScreen_)) {
+    if (!isFocusTimerMenuScreen(menuScreen_) && !isDigitalRainMenuScreen(menuScreen_) &&
+        !isMorseNoteMenuScreen(menuScreen_)) {
         applyReaderUiOrientation();
     }
 
@@ -6025,6 +6159,10 @@ void App::renderMenu() {
         renderDigitalRainSession();
     } else if (menuScreen_ == MenuScreen::DigitalRainSettings) {
         renderDigitalRainSettings();
+    } else if (menuScreen_ == MenuScreen::MorseNoteSession) {
+        renderMorseNoteSession();
+    } else if (menuScreen_ == MenuScreen::MorseNoteSettings) {
+        renderMorseNoteSettings();
     } else {
         renderMainMenu();
     }
@@ -6157,6 +6295,7 @@ void App::renderQuickSettings() {
     items.push_back(String("Theme: ") + themeModeLabel());
     items.push_back("Focus Timer");
     items.push_back("Digital Rain");
+    items.push_back("Morse Note");
     items.push_back("Sync");
     display_.renderMenu(items, quickSettingsSelectedIndex_);
 }
@@ -6273,6 +6412,31 @@ void App::renderDigitalRainSettings() {
     items.push_back("Highlights: " + (digitalRain_.highlightsEnabled() ? uiText(UiText::On) : uiText(UiText::Off)));
     items.push_back(String("Rotate: ") + digitalRainRotateModeLabel(digitalRain_.rotateMode()));
     display_.renderMenu(items, digitalRainSettingsSelectedIndex_);
+}
+
+void App::renderMorseNoteSession() {
+    applyUiOrientation(Board::UiOrientation::LandscapeFlipped);
+
+    String liveValue = morseInput_.composedText();
+    if (!morseInput_.pendingSymbols().isEmpty()) {
+        liveValue += " [" + morseInput_.pendingSymbols() + "]";
+    }
+    display_.renderTextEntry("Morse Note", "Tap: dot/dash. Swipe up from bottom edge: menu.", liveValue,
+                             "", {});
+}
+
+void App::renderMorseNoteSettings() {
+    applyUiOrientation(Board::UiOrientation::LandscapeFlipped);
+    if (morseNoteSettingsSelectedIndex_ >= MorseNoteSettingsItemCount) {
+        morseNoteSettingsSelectedIndex_ = MorseNoteSettingsBack;
+    }
+
+    std::vector<String> items;
+    items.reserve(MorseNoteSettingsItemCount);
+    items.push_back(uiText(UiText::Back));
+    items.push_back("Save & Exit");
+    items.push_back("Discard & Exit");
+    display_.renderMenu(items, morseNoteSettingsSelectedIndex_);
 }
 
 bool App::updateChapterTransition(uint32_t nowMs) {
@@ -6782,6 +6946,10 @@ bool App::isFocusTimerMenuScreen(MenuScreen screen) const {
 
 bool App::isDigitalRainMenuScreen(MenuScreen screen) const {
     return screen == MenuScreen::DigitalRainSession || screen == MenuScreen::DigitalRainSettings;
+}
+
+bool App::isMorseNoteMenuScreen(MenuScreen screen) const {
+    return screen == MenuScreen::MorseNoteSession || screen == MenuScreen::MorseNoteSettings;
 }
 
 void App::applyUiOrientation(Board::UiOrientation orientation) {
